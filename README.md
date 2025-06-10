@@ -26,3 +26,11 @@ kafka-console-producer --bootstrap-server localhost:9092 --topic hello-world
 kafka-console-consumer --bootstrap-server localhost:9092 --topic hello-world --from-beginning
 kafka-topics --bootstrap-server localhost:9092 --delete --topic hello-world
 ```
+
+## Postgres tutorial
+
+```sh
+psql -U superset -d nginx_logs
+\dt
+select count(*) from raw_logs;
+```
