@@ -52,7 +52,7 @@ services:
     container_name: producer
     platform: linux/amd64
     environment:
-      - LOKI_URL=https://loki.example.com
+      - LOKI_URL=https://loki.examole.com
       - KAFKA_BROKER=kafka:9092
       - KAFKA_NGINX_TOPIC=nginx
     depends_on:
@@ -115,16 +115,21 @@ services:
       - spark-worker-1
       - spark-worker-2
       - spark-master
+      - postgres
     volumes:
       - ./predictions:/app
+      - ./models:/tmp/models
+      - ./checkpoints:/tmp/checkpoints
     working_dir: /app
     environment:
       KAFKA_BROKER: kafka:9092
       KAFKA_NGINX_TOPIC: nginx
     command: >
       bash -c "
-        pip install kafka-python numpy &&
-        spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.postgresql:postgresql:42.2.20 /app/main.py
+        pip install kafka-python numpy pandas scikit-learn &&
+        mkdir -p /tmp/models /tmp/checkpoints &&
+        spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.postgresql:postgresql:42.2.20 /app/anomaly_detection.py &
+        spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.postgresql:postgresql:42.2.20 /app/response_time_prediction.py
       "
     networks:
       - cloudflare
@@ -185,11 +190,15 @@ services:
       DATABASE_URL: postgresql+psycopg2://superset:superset@postgres:5432/dns_logs
     command: >
       /bin/sh -c "
-      pip install -r /app/requirements-local.txt &&
+      pip install requests &&
       superset db upgrade &&
       superset fab create-admin --username admin --firstname Admin --lastname User --email admin@superset.com --password admin &&
       superset init &&
-      superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger"
+      (superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger &) &&
+      sleep 30 &&
+      python /app/superset_files/setup_dashboards.py
+      tail -f /dev/null
+      "
     networks:
       - cloudflare
 
