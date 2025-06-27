@@ -50,7 +50,7 @@ Identify potential security incidents (unusual API access patterns)
 Alert on unexpected traffic spikes
 Example anomalies to detect:
 
-Sudden increase in request time for /api/objectstore/actions/execute/altair/driveweb/License/heartbeat
+Sudden increase in request time for /api/heartbeat
 Unusual access patterns from specific IP addresses (like 115.114.18.230)
 2. Response Time Prediction and Optimization
 Implementation:
