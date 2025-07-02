@@ -17,3 +17,6 @@ EOSQL
 if [ -n "$POSTGRES_MULTIPLE_DATABASES" ]; then
     create_multiple_dbs
 fi
+
+# Run initialization scripts for nginx_logs
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -f /docker-entrypoint-initdb.d/init-nginx-logs.sql

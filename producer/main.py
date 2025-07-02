@@ -72,7 +72,7 @@ def process_and_send_log(producer: KafkaProducer, log: str, topic: str) -> None:
         required_keys = {"request", "remote_addr", "status", "request_time"}
 
         if isinstance(log_data, dict) and required_keys.issubset(log_data.keys()):
-            if log_data.get("server_name") == "dev.example.com":
+            if log_data.get("server_name") == "dev.az.example.com":
                 producer.send(topic, log_data)
                 logger.info(f"Sent log to topic '{topic}'")
             else:

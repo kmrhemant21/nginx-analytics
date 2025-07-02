@@ -5,9 +5,7 @@ import os
 
 # Create Spark session
 spark = SparkSession.builder \
-    .appName("NGINX_Logs_Kafka_To_ClickHouse") \
-    .config("spark.jars.packages", 
-            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,com.clickhouse:clickhouse-jdbc:0.3.2-patch9") \
+    .appName("NGINX_Logs_Kafka_To_PostgreSQL") \
     .getOrCreate()
 
 # Set log level
@@ -76,10 +74,22 @@ parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json") \
 # Add processing timestamp
 enriched_df = parsed_df.withColumn("processing_time", current_timestamp())
 
-# Function to write to ClickHouse
-def write_to_clickhouse(batch_df, batch_id):
-    if batch_df.count() > 0:
-        # Select only needed columns
+# Function to write to PostgreSQL
+def write_to_postgres(batch_df, batch_id):
+    if batch_df.rdd.isEmpty():
+        return
+    
+    try:
+        # Cast numeric fields to appropriate types
+        batch_df = batch_df.withColumn("request_length", col("request_length").cast("integer")) \
+            .withColumn("status", col("status").cast("integer")) \
+            .withColumn("body_bytes_sent", col("body_bytes_sent").cast("integer")) \
+            .withColumn("bytes_sent", col("bytes_sent").cast("integer")) \
+            .withColumn("request_time", col("request_time").cast("double")) \
+            .withColumn("upstream_response_time", col("upstream_response_time").cast("double")) \
+            .withColumn("upstream_response_length", col("upstream_response_length").cast("integer"))
+        
+        # Select and write to PostgreSQL
         batch_df.select(
             "timestamp", "msec", "connection", "connection_requests", "pid", 
             "request_id", "request_length", "remote_addr", "remote_port", 
@@ -91,22 +101,25 @@ def write_to_clickhouse(batch_df, batch_id):
             "endpoint"
         ).write \
             .format("jdbc") \
-            .option("driver", "com.clickhouse.jdbc.ClickHouseDriver") \
-            .option("url", "jdbc:clickhouse://clickhouse:8123/nginx_logs") \
+            .option("driver", "org.postgresql.Driver") \
+            .option("url", "jdbc:postgresql://postgres:5432/nginx_logs") \
             .option("dbtable", "raw_logs") \
-            .option("user", "default") \
-            .option("password", "") \
+            .option("user", "postgres") \
+            .option("password", "postgres") \
             .mode("append") \
             .save()
         
-        print(f"Batch {batch_id}: Wrote {batch_df.count()} records to ClickHouse")
+        print(f"Batch {batch_id}: Wrote {batch_df.count()} records to PostgreSQL")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        print(f"Batch {batch_id}: ERROR writing to PostgreSQL: {e}")
 
-# Write to ClickHouse
+# Write to PostgreSQL
 query = enriched_df \
     .writeStream \
-    .foreachBatch(write_to_clickhouse) \
+    .foreachBatch(write_to_postgres) \
     .outputMode("append") \
-    .option("checkpointLocation", "/opt/bitnami/spark/work-dir/checkpoints/nginx_to_clickhouse") \
+    .option("checkpointLocation", "/opt/bitnami/spark/work-dir/checkpoints/nginx_to_postgres") \
     .trigger(processingTime="10 seconds") \
     .start()
 

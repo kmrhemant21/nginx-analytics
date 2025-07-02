@@ -13,11 +13,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    networks:
-      - nginx-analytics
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_log:/var/lib/zookeeper/log
+    networks:
+      - nginx-analytics
+
   kafka:
     image: confluentinc/cp-kafka:7.3.0
     container_name: kafka
@@ -42,10 +43,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-    networks:
-      - nginx-analytics
     volumes:
       - kafka_data:/var/lib/kafka/data
+    networks:
+      - nginx-analytics
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
@@ -61,16 +63,17 @@ services:
       - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
     networks:
       - nginx-analytics
+
   producer:
     build: ./producer
     container_name: producer
     platform: linux/amd64
     environment:
-      - LOKI_URL=https://loki.example.com
+      - LOKI_URL=https://xxxx
       - KAFKA_BROKER=kafka:9092
       - KAFKA_TOPIC=nginx
       - LOKI_USERNAME=loki
-      - LOKI_PASSWORD=xxxxxxxx
+      - LOKI_PASSWORD=xxxx
     depends_on:
       kafka:
         condition: service_healthy
@@ -78,14 +81,15 @@ services:
         condition: service_started
       zookeeper:
         condition: service_healthy
+    entrypoint: ["./wait-for-it.sh", "kafka:9092", "--timeout=60", "--", "python", "main.py"]
     networks:
       - nginx-analytics
-    entrypoint: ["./wait-for-it.sh", "kafka:9092", "--timeout=60", "--", "python", "main.py"]
 
   consumer:
-    image: bitnami/spark:latest
+    image: bitnami/spark:3.4.0
     container_name: consumer
     platform: linux/amd64
+    user: root
     depends_on:
       - kafka
       - spark-worker
@@ -98,141 +102,130 @@ services:
       KAFKA_TOPIC: nginx
     command: >
       bash -c "
-        pip install kafka-python &&
-        spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.postgresql:postgresql:42.2.20 /app/main.py
+        pip install kafka-python psycopg2-binary pyspark &&
+        mkdir -p /var/lib/apt/lists/partial &&
+        apt-get update &&
+        apt-get install -y wget &&
+        wget https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -O /opt/bitnami/spark/jars/postgresql-42.7.3.jar &&
+        spark-submit --master spark://spark-master:7077 --jars /opt/bitnami/spark/jars/postgresql-42.7.3.jar --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.0,org.apache.kafka:kafka-clients:2.8.1 /app/main.py
       "
     networks:
       - nginx-analytics
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest
-    container_name: clickhouse
-    restart: unless-stopped
-    platform: linux/amd64
-    ports:
-      - "8123:8123"  # HTTP interface
-      - "9010:9000"  # Native interface
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse-config:/etc/clickhouse-server/config.d
-    environment:
-      - CLICKHOUSE_DB=default
-      - CLICKHOUSE_USER=default
-      - CLICKHOUSE_PASSWORD=
-    entrypoint: /etc/clickhouse-server/config.d/entrypoint.sh
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
-    healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 3
   # -- MinIO for object storage --
-  minio:
-    image: minio/minio:RELEASE.2023-07-07T07-13-57Z
-    container_name: minio
-    restart: always
-    platform: linux/amd64
-    ports:
-      - "9001:9001"  # Web console
-      - "9000:9000"  # API
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+  # minio:
+  #   image: minio/minio:RELEASE.2023-07-07T07-13-57Z
+  #   container_name: minio
+  #   restart: always
+  #   platform: linux/amd64
+  #   ports:
+  #     - "9001:9001"  # Web console
+  #     - "9000:9000"  # API
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   volumes:
+  #     - minio_data:/data
+  #   command: server /data --console-address ":9001"
+  #   networks:
+  #     - nginx-analytics
 
   # -- MLflow for experiment tracking and model registry --
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.10.0
-    container_name: mlflow
-    restart: always
-    platform: linux/amd64
-    ports:
-      - "5000:5000"
-    environment:
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9010
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      MLFLOW_TRACKING_URI: http://mlflow:5000
-      BACKEND_STORE_URI: postgresql://postgres:postgres@postgres:5432/mlflow
-      ARTIFACT_ROOT: s3://mlflow/artifacts
-    depends_on:
-      - minio
-      - postgres
-    command: pip install psycopg2-binary && mlflow server --backend-store-uri postgresql://postgres:postgres@postgres:5432/mlflow --default-artifact-root s3://mlflow/artifacts --host 0.0.0.0
+  # mlflow:
+  #   image: ghcr.io/mlflow/mlflow:v2.10.0
+  #   container_name: mlflow
+  #   restart: always
+  #   platform: linux/amd64
+  #   ports:
+  #     - "5000:5000"
+  #   environment:
+  #     MLFLOW_S3_ENDPOINT_URL: http://minio:9010
+  #     AWS_ACCESS_KEY_ID: minioadmin
+  #     AWS_SECRET_ACCESS_KEY: minioadmin
+  #     MLFLOW_TRACKING_URI: http://mlflow:5000
+  #     BACKEND_STORE_URI: postgresql://postgres:postgres@postgres:5432/mlflow
+  #     ARTIFACT_ROOT: s3://mlflow/artifacts
+  #   depends_on:
+  #     - minio
+  #     - postgres
+  #   command: pip install psycopg2-binary && mlflow server --backend-store-uri postgresql://postgres:postgres@postgres:5432/mlflow --default-artifact-root s3://mlflow/artifacts --host 0.0.0.0
+  #   networks:
+  #     - nginx-analytics
 
   # -- Postgres for MLflow metadata and Airflow --
   postgres:
-    image: postgres:14
+    image: postgres:latest
     container_name: postgres
     restart: always
     platform: linux/amd64
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_MULTIPLE_DATABASES: mlflow,airflow
+      POSTGRES_MULTIPLE_DATABASES: mlflow,airflow,nginx_logs
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+    networks:
+      - nginx-analytics
 
   # -- Airflow components --
-  airflow-webserver:
-    image: apache/airflow:2.7.1
-    container_name: airflow-webserver
-    restart: always
-    platform: linux/amd64
-    depends_on:
-      - postgres
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
-      AIRFLOW__CORE__FERNET_KEY: ""
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/config:/opt/airflow/config
-    ports:
-      - "8080:8080"
-    command: webserver
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+  # airflow-webserver:
+  #   image: apache/airflow:2.7.1
+  #   container_name: airflow-webserver
+  #   restart: always
+  #   platform: linux/amd64
+  #   depends_on:
+  #     - postgres
+  #   environment:
+  #     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  #     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
+  #     AIRFLOW__CORE__FERNET_KEY: ""
+  #     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  #     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  #     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+  #   volumes:
+  #     - ./airflow/dags:/opt/airflow/dags
+  #     - ./airflow/logs:/opt/airflow/logs
+  #     - ./airflow/plugins:/opt/airflow/plugins
+  #     - ./airflow/config:/opt/airflow/config
+  #   ports:
+  #     - "8080:8080"
+  #   command: webserver
+  #   healthcheck:
+  #     test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #   networks:
+  #     - nginx-analytics
 
-  airflow-scheduler:
-    image: apache/airflow:2.7.1
-    container_name: airflow-scheduler
-    restart: always
-    platform: linux/amd64
-    depends_on:
-      - airflow-webserver
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
-      AIRFLOW__CORE__FERNET_KEY: ""
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/config:/opt/airflow/config
-    command: scheduler
+  # airflow-scheduler:
+  #   image: apache/airflow:2.7.1
+  #   container_name: airflow-scheduler
+  #   restart: always
+  #   platform: linux/amd64
+  #   depends_on:
+  #     - airflow-webserver
+  #   environment:
+  #     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  #     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
+  #     AIRFLOW__CORE__FERNET_KEY: ""
+  #     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+  #     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  #   volumes:
+  #     - ./airflow/dags:/opt/airflow/dags
+  #     - ./airflow/logs:/opt/airflow/logs
+  #     - ./airflow/plugins:/opt/airflow/plugins
+  #     - ./airflow/config:/opt/airflow/config
+  #   command: scheduler
+  #   networks:
+  #     - nginx-analytics
 
   # -- Spark Master for distributed processing --
   spark-master:
-    image: bitnami/spark:3.4.1
+    image: bitnami/spark:3.4.0
     container_name: spark-master
     restart: always
     platform: linux/amd64
@@ -248,10 +241,12 @@ services:
     volumes:
       - ./spark/conf:/opt/bitnami/spark/conf
       - ./spark/work:/opt/bitnami/spark/work-dir
+    networks:
+      - nginx-analytics
 
   # -- Spark Worker for processing --
   spark-worker:
-    image: bitnami/spark:3.4.1
+    image: bitnami/spark:3.4.0
     container_name: spark-worker
     restart: always
     platform: linux/amd64
@@ -269,24 +264,30 @@ services:
     volumes:
       - ./spark/conf:/opt/bitnami/spark/conf
       - ./spark/work:/opt/bitnami/spark/work-dir
+    networks:
+      - nginx-analytics
 
   # -- Model Serving with MLflow --
-  mlflow-serving:
-    image: ghcr.io/mlflow/mlflow:v2.10.0
-    container_name: mlflow-serving
-    platform: linux/amd64
-    restart: always
-    ports:
-      - "5001:5001"
-    environment:
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      MLFLOW_TRACKING_URI: http://mlflow:5000
-    depends_on:
-      - mlflow
-    command: >
-      bash -c "sleep 10 && mlflow models serve -m models:/nginx_anomaly_detector/Production -p 5001 -h 0.0.0.0"
+  # mlflow-serving:
+  #   image: ghcr.io/mlflow/mlflow:v2.10.0
+  #   container_name: mlflow-serving
+  #   platform: linux/amd64
+  #   restart: always
+  #   ports:
+  #     - "5001:5001"
+  #   environment:
+  #     MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+  #     AWS_ACCESS_KEY_ID: minioadmin
+  #     AWS_SECRET_ACCESS_KEY: minioadmin
+  #     MLFLOW_TRACKING_URI: http://mlflow:5000
+  #   depends_on:
+  #     - mlflow
+  #   command: >
+  #     bash -c "sleep 10 && mlflow models serve -m models:/nginx_anomaly_detector/Production -p 5001 -h 0.0.0.0"
+  #   networks:
+  #     - nginx-analytics
+
+################################################################
 
 
   # postgres:
@@ -311,7 +312,7 @@ services:
   #     - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   # ingestor:
-  #   image: bitnami/spark:latest
+  #   image: bitnami/spark:3.4.0
   #   container_name: ingestor
   #   platform: linux/amd64
   #   depends_on:
@@ -334,7 +335,7 @@ services:
   #     - nginx-analytics
 
   # predictions:
-  #   image: bitnami/spark:latest
+  #   image: bitnami/spark:3.4.0
   #   container_name: predictions
   #   platform: linux/amd64
   #   depends_on:
@@ -359,7 +360,7 @@ services:
   #     - nginx-analytics
 
   # spark-master:
-  #   image: bitnami/spark:latest
+  #   image: bitnami/spark:3.4.0
   #   container_name: spark-master
   #   platform: linux/amd64
   #   environment:
@@ -371,7 +372,7 @@ services:
   #     - nginx-analytics
 
   # spark-worker-1:
-  #   image: bitnami/spark:latest
+  #   image: bitnami/spark:3.4.0
   #   container_name: spark-worker-1
   #   platform: linux/amd64
   #   environment:
@@ -385,7 +386,7 @@ services:
   #     - nginx-analytics
 
   # spark-worker-2:
-  #   image: bitnami/spark:latest
+  #   image: bitnami/spark:3.4.0
   #   container_name: spark-worker-2
   #   platform: linux/amd64
   #   environment:
@@ -434,6 +435,5 @@ volumes:
   zookeeper_data:
   zookeeper_log:
   kafka_data:
-  clickhouse_data:
   postgres_data:
   minio_data:
